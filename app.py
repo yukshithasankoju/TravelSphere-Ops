@@ -2,14 +2,17 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-
 from agents.performance_agent import (
     load_branch_data,
     calculate_branch_performance,
     get_performance_summary,
     generate_recommendations,
-    identify_branch_alerts
+    identify_branch_alerts,
+    analyze_revenue_trends,
+    analyze_cancellation_trends
 )
+
+from database.fetch_data import load_performance_history
 
 
 # ==========================================
@@ -80,6 +83,7 @@ st.markdown("""
 
 try:
     branch_data = load_branch_data()
+    history_data = load_performance_history()
     
 
 
@@ -311,7 +315,315 @@ elif selected_page == "Outlet Performance Agent":
         use_container_width=True,
         hide_index=True
     )
+       # REVENUE TREND ANALYSIS
 
+    st.markdown("---")
+
+    st.subheader("Daily Revenue Trend")
+
+    # DATE FILTER
+
+    history_data["Date"] = pd.to_datetime(history_data["Date"])
+
+    min_date = history_data["Date"].min().date()
+    max_date = history_data["Date"].max().date()
+
+    selected_dates = st.date_input(
+        "Select Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+
+    start_date, end_date = selected_dates
+
+    filtered_history = history_data[
+        (history_data["Date"].dt.date >= start_date) &
+        (history_data["Date"].dt.date <= end_date)
+    ]
+
+    revenue_trend_data = analyze_revenue_trends(filtered_history)
+
+    revenue_trend_chart = px.line(
+        revenue_trend_data,
+        x="Date",
+        y="Revenue",
+        color="Branch",
+        markers=True,
+        title="Daily Revenue Trend by Branch"
+    )
+
+    revenue_trend_chart.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Revenue (₹)",
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(
+        revenue_trend_chart,
+        use_container_width=True
+    )
+
+    # BOOKING TREND ANALYSIS
+
+    st.markdown("---")
+
+    st.subheader("Daily Booking Trend")
+
+    booking_trend_chart = px.line(
+        filtered_history,
+        x="Date",
+        y="Bookings",
+        color="Branch",
+        markers=True,
+        title="Daily Bookings by Branch"
+    )
+
+    booking_trend_chart.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Number of Bookings",
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(
+        booking_trend_chart,
+        use_container_width=True
+    )
+        # HISTORICAL PERFORMANCE REPORT
+
+    st.markdown("---")
+
+    st.subheader("Download Historical Performance Report")
+
+    historical_csv = filtered_history.to_csv(
+        index=False
+    ).encode("utf-8")
+
+    st.download_button(
+        label="Download Historical Report CSV",
+        data=historical_csv,
+        file_name="historical_performance_report.csv",
+        mime="text/csv"
+    )
+    # BRANCH BOOKING COMPARISON
+
+    st.markdown("---")
+
+    st.subheader("Branch-wise Booking Comparison")
+
+    booking_comparison = performance_data.sort_values(
+        by="Bookings",
+        ascending=False
+    )
+
+    booking_comparison_chart = px.bar(
+        booking_comparison,
+        x="Branch",
+        y="Bookings",
+        text="Bookings",
+        title="Bookings Comparison Across Branches",
+        color="Branch"
+    )
+
+    booking_comparison_chart.update_layout(
+        xaxis_title="Branch",
+        yaxis_title="Total Bookings",
+        showlegend=False
+    )
+
+    st.plotly_chart(
+        booking_comparison_chart,
+        use_container_width=True
+    )
+           # BOOKING INSIGHTS
+
+    st.markdown("---")
+
+    st.subheader("Booking Insights")
+
+    total_bookings = performance_data["Bookings"].sum()
+
+    highest_booking_branch = performance_data.loc[
+        performance_data["Bookings"].idxmax()
+    ]
+
+    lowest_booking_branch = performance_data.loc[
+        performance_data["Bookings"].idxmin()
+    ]
+
+    average_bookings = performance_data["Bookings"].mean()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Total Bookings", int(total_bookings))
+
+    with col2:
+        st.metric(
+            "Highest Bookings",
+            highest_booking_branch["Branch"],
+            int(highest_booking_branch["Bookings"])
+        )
+
+    with col3:
+        st.metric(
+            "Lowest Bookings",
+            lowest_booking_branch["Branch"],
+            int(lowest_booking_branch["Bookings"])
+        )
+
+    with col4:
+        st.metric("Average Bookings", round(average_bookings, 2))
+
+
+    # AUTOMATIC BOOKING OBSERVATIONS
+
+    st.markdown("---")
+
+    st.subheader("Automatic Booking Observations")
+
+    booking_difference = (
+        highest_booking_branch["Bookings"]
+        - lowest_booking_branch["Bookings"]
+    )
+
+    st.info(
+        f"{highest_booking_branch['Branch']} leads with "
+        f"{int(highest_booking_branch['Bookings'])} bookings, "
+        f"while {lowest_booking_branch['Branch']} has the lowest "
+        f"with {int(lowest_booking_branch['Bookings'])} bookings. "
+        f"The difference between them is "
+        f"{int(booking_difference)} bookings."
+    )
+
+    if average_bookings > 0:
+
+        below_average_branches = performance_data[
+            performance_data["Bookings"] < average_bookings
+        ]
+
+        if not below_average_branches.empty:
+
+            st.warning(
+                "Branches performing below the booking average: "
+                + ", ".join(
+                    below_average_branches["Branch"].tolist()
+                )
+            )
+
+        else:
+
+            st.success(
+                "All branches are performing at or above "
+                "the booking average."
+            )
+
+
+    # OVERALL OUTLET PERFORMANCE SUMMARY
+
+    st.markdown("---")
+
+    st.subheader("Overall Outlet Performance Summary")
+
+    total_revenue = performance_data["Revenue"].sum()
+    total_target = performance_data["Target"].sum()
+    total_cancellations = performance_data["Cancellations"].sum()
+
+    overall_achievement = (
+        total_revenue / total_target * 100
+        if total_target > 0 else 0
+    )
+
+    overall_cancellation_rate = (
+        total_cancellations / total_bookings * 100
+        if total_bookings > 0 else 0
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Total Revenue",
+            f"₹{total_revenue:,.0f}"
+        )
+
+    with col2:
+        st.metric(
+            "Overall Target Achievement",
+            f"{overall_achievement:.2f}%"
+        )
+
+    with col3:
+        st.metric(
+            "Total Bookings",
+            int(total_bookings)
+        )
+
+    col4, col5, col6 = st.columns(3)
+
+    with col4:
+        st.metric(
+            "Total Target",
+            f"₹{total_target:,.0f}"
+        )
+
+    with col5:
+        st.metric(
+            "Total Cancellations",
+            int(total_cancellations)
+        )
+
+    with col6:
+        st.metric(
+            "Overall Cancellation Rate",
+            f"{overall_cancellation_rate:.2f}%"
+        )
+
+
+    # MANAGEMENT DECISION INSIGHTS
+
+    st.markdown("---")
+
+    st.subheader("Management Decision Insights")
+
+    if overall_achievement >= 100:
+
+        st.success(
+            "Overall Status: On Target. "
+            "Revenue has met or exceeded the combined target."
+        )
+
+    elif overall_achievement >= 80:
+
+        st.warning(
+            "Overall Status: Needs Improvement. "
+            "Revenue is progressing but the combined target "
+            "has not been achieved."
+        )
+
+    else:
+
+        st.error(
+            "Overall Status: Below Target. "
+            "Revenue performance requires management attention."
+        )
+
+    if overall_cancellation_rate > 10:
+
+        st.warning(
+            f"Cancellation rate is "
+            f"{overall_cancellation_rate:.2f}%. "
+            "Management should review cancellation patterns "
+            "and identify possible causes."
+        )
+
+    else:
+
+        st.success(
+            f"Cancellation rate is "
+            f"{overall_cancellation_rate:.2f}%. "
+            "Continue monitoring cancellations across branches."
+        )
     # PERFORMANCE SUMMARY
 
     st.subheader("Performance Highlights")
@@ -367,9 +679,70 @@ elif selected_page == "Outlet Performance Agent":
     for recommendation in recommendations:
         st.warning(recommendation)
 
-    # CANCELLATION ANALYSIS
+    # BRANCH-SPECIFIC RECOMMENDATIONS
 
-       
+    st.markdown("---")
+
+    st.subheader("Branch-wise Action Plan")
+
+    for _, row in performance_data.iterrows():
+
+        branch_name = row["Branch"]
+        revenue = row["Revenue"]
+        target = row["Target"]
+        bookings = row["Bookings"]
+        cancellations = row["Cancellations"]
+
+        achievement = (
+            revenue / target * 100
+            if target > 0 else 0
+        )
+
+        cancellation_rate = (
+            cancellations / bookings * 100
+            if bookings > 0 else 0
+        )
+
+        st.markdown(f"### {branch_name}")
+
+        if achievement < 70:
+
+            st.error(
+                f"Revenue achievement is {achievement:.2f}%. "
+                "Review sales performance and identify reasons "
+                "for the revenue gap."
+            )
+
+        elif achievement < 100:
+
+            st.warning(
+                f"Revenue achievement is {achievement:.2f}%. "
+                "Focus on closing the remaining target gap."
+            )
+
+        else:
+
+            st.success(
+                f"Target achieved with {achievement:.2f}%. "
+                "Maintain the current performance."
+            )
+
+        if cancellation_rate > 10:
+
+            st.warning(
+                f"Cancellation rate is {cancellation_rate:.2f}%. "
+                "Investigate cancellation reasons and booking issues."
+            )
+
+        else:
+
+            st.info(
+                f"Cancellation rate: {cancellation_rate:.2f}%. "
+                "Continue monitoring booking quality."
+            )
+
+
+    # CANCELLATION ANALYSIS
 
     st.markdown("---")
 
@@ -399,8 +772,34 @@ elif selected_page == "Outlet Performance Agent":
         use_container_width=True
     )
 
-   
 
+    # CANCELLATION RATE TREND ANALYSIS
+
+    st.markdown("---")
+
+    st.subheader("Daily Cancellation Rate Trend")
+
+    cancellation_trend_data = analyze_cancellation_trends(filtered_history)
+
+    cancellation_trend_chart = px.line(
+        cancellation_trend_data,
+        x="Date",
+        y="Cancellation Rate (%)",
+        color="Branch",
+        markers=True,
+        title="Daily Cancellation Rate by Branch"
+    )
+
+    cancellation_trend_chart.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Cancellation Rate (%)",
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(
+        cancellation_trend_chart,
+        use_container_width=True
+    )
 
 # ==========================================
 # INVENTORY AGENT
@@ -514,6 +913,20 @@ elif selected_page == "Dashboard & Reporting":
         branch_data,
         use_container_width=True,
         hide_index=True
+    )
+        # DOWNLOAD PERFORMANCE REPORT
+
+    st.markdown("---")
+
+    st.subheader("Download Performance Report")
+
+    report_csv = performance_data.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="Download Branch Performance CSV",
+        data=report_csv,
+        file_name="outlet_performance_report.csv",
+        mime="text/csv"
     )
 
 

@@ -1,5 +1,6 @@
 
 import pandas as pd
+from database.db_connection import get_connection
 
 
 # 1. Calculate performance for every branch
@@ -78,17 +79,33 @@ def generate_recommendations(performance_data):
             )
 
     return recommendations
-from pathlib import Path
-
-
-# Load branch records from CSV
+# Load branch records from SQLite database
+# Load the latest branch records from SQLite database
 def load_branch_data():
+    connection = get_connection()
 
-    project_folder = Path(__file__).resolve().parent.parent
+    query = """
+        SELECT
+            b.branch_name AS Branch,
+            p.revenue AS Revenue,
+            p.target AS Target,
+            p.bookings AS Bookings,
+            p.cancellations AS Cancellations,
+            p.record_date AS Date
+        FROM performance_records p
+        JOIN branches b
+            ON p.branch_id = b.branch_id
+        WHERE b.is_active = 1
+        AND p.record_date = (
+            SELECT MAX(p2.record_date)
+            FROM performance_records p2
+            WHERE p2.branch_id = p.branch_id
+        )
+        ORDER BY b.branch_name
+    """
 
-    file_path = project_folder / "data" / "branch_data.csv"
-
-    branch_data = pd.read_csv(file_path)
+    branch_data = pd.read_sql_query(query, connection)
+    connection.close()
 
     return branch_data
     # 5. Identify branches that need attention
@@ -121,3 +138,68 @@ def identify_branch_alerts(performance_data):
             })
 
     return alerts
+    # 6. Analyze daily revenue trends
+def analyze_revenue_trends(history_data):
+
+    trend_data = history_data.copy()
+
+    trend_data = trend_data.sort_values(
+        by=["Branch", "Date"]
+    )
+
+    trend_data["Previous Revenue"] = (
+        trend_data.groupby("Branch")["Revenue"].shift(1)
+    )
+
+    trend_data["Revenue Change"] = (
+        trend_data["Revenue"] - trend_data["Previous Revenue"]
+    )
+
+    trend_data["Revenue Change (%)"] = (
+        trend_data["Revenue"]
+        .pct_change()
+    )
+
+    trend_data["Revenue Change (%)"] = (
+        trend_data.groupby("Branch")["Revenue"]
+        .pct_change()
+        .mul(100)
+        .round(2)
+    )
+
+    trend_data["Trend"] = trend_data["Revenue Change"].apply(
+        lambda value: "Increased"
+        if value > 0
+        else "Decreased"
+        if value < 0
+        else "No Change"
+    )
+
+    return trend_data
+    # 7. Analyze cancellation rates
+def analyze_cancellation_trends(history_data):
+
+    cancellation_data = history_data.copy()
+
+    cancellation_data = cancellation_data.sort_values(
+        by=["Branch", "Date"]
+    )
+
+    cancellation_data["Cancellation Rate (%)"] = (
+        cancellation_data["Cancellations"]
+        .div(cancellation_data["Bookings"].replace(0, pd.NA))
+        .mul(100)
+        .round(2)
+    )
+
+    cancellation_data["Previous Cancellation Rate (%)"] = (
+        cancellation_data.groupby("Branch")["Cancellation Rate (%)"]
+        .shift(1)
+    )
+
+    cancellation_data["Rate Change (%)"] = (
+        cancellation_data["Cancellation Rate (%)"]
+        - cancellation_data["Previous Cancellation Rate (%)"]
+    ).round(2)
+
+    return cancellation_data
