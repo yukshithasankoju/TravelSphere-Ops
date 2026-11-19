@@ -13,7 +13,8 @@ from agents.performance_agent import (
 )
 
 from database.fetch_data import load_performance_history
-
+from database.create_tables import create_tables
+from database.seed_data import seed_database
 
 # ==========================================
 # PAGE CONFIGURATION
