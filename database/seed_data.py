@@ -1,5 +1,5 @@
-from db_connection import get_connection
 
+from database.db_connection import get_connection
 def seed_data():
     connection = get_connection()
     cursor = connection.cursor()
