@@ -25,6 +25,15 @@ st.set_page_config(
     layout="wide"
 )
 
+# DATABASE INITIALIZATION
+
+try:
+    create_tables()
+    seed_data()
+
+except Exception as e:
+    st.error(f"Database initialization failed: {e}")
+    st.stop()
 
 # ==========================================
 # CUSTOM CSS
