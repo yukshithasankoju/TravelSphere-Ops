@@ -1,3 +1,4 @@
+
 import pandas as pd
 from database.db_connection import get_connection
 
@@ -23,6 +24,7 @@ def load_performance_history():
     """
 
     history_data = pd.read_sql_query(query, connection)
+
     connection.close()
 
     return history_data
